@@ -1,0 +1,58 @@
+---
+
+- hosts: all
+  gather_facts: no
+  user: ubuntu
+  become: yes
+
+  tasks:
+    - name: module load
+      lineinfile:
+        dest: /etc/modules
+        line: br_netfilter
+    - modprobe:
+        name: br_netfilter
+
+    - name: prep hosts
+      sysctl:
+        name: net.bridge.bridge-nf-call-iptables
+        sysctl_file: /etc/sysctl.conf
+        value: 1
+        reload: yes
+
+    - name: prep container runtime
+      lineinfile:
+        dest: /etc/modules
+        line: overlay
+
+    - modprobe:
+        name: overlay
+    - sysctl:
+        name: net.ipv4.ip_forward
+        value: 1
+        sysctl_file: /etc/sysctl.conf
+        reload: yes
+
+    - name: apk cache update
+      apt:
+        update_cache: yes
+
+    - name: a
+
+  apt-transport-https ca-certificates curl software-properties-common
+
+#
+#
+#    - name: apk cache update
+#      apt:
+#        update_cache: yes
+#
+#    - name: setup tools
+#      apt:
+#        name: "{{ item }}"
+#      loop:
+#        - vim
+#        - docker.io
+#        - python3-pip
+#        - python3-venv
+
