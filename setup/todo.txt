@@ -1,0 +1,46 @@
+1. требования
+- swap disabled
+- уникальные hostname, mac, product_uuid для нод
+// /sys/class/dmi/id/product_uuid
+- модуль (br_netfilter) + syctls net.bridge.bridge-nf-call-iptables
+- порты:
+    Control-plane node(s)
+        TCP	Inbound	6443*	Kubernetes API server	All
+        TCP	Inbound	2379-2380	etcd server client API	kube-apiserver, etcd
+        TCP	Inbound	10250	Kubelet API	Self, Control plane	TCP
+        Inbound	10251	kube-scheduler	Self
+        TCP	Inbound	10252	kube-controller-manager	Self
+
+    worker nodes(s)
+        TCP	Inbound	10250	Kubelet API	Self, Control plane
+        TCP	Inbound	30000-32767	NodePort Services†	All
+
+
+
+сетап без докера
+
+# создаем конфиг
+kubeadm config print init-defaults  --component-configs KubeProxyConfiguration,KubeletConfiguration  > init_config.yml
+
+# правим
+cgroupDriver: systemd
+>> в раздел kubelet
+
+# накатываем
+kubeadm init --config config.yml --cri-socket  /var/run/containerd/containerd.sock
+
+# ставим network plugin
+# пример weave
+#"https://cloud.weave.works/k8s/net?k8s-version=$(kubectl version | base64 | tr -d '\n')"
+
+# добавляем воркеры
+kubeadm join 172.22.9.87:6443 --token abcdef.0123456789abcdef     --discovery-token-ca-cert-hash sha256:c1c6e530970e6c3a9275e4039b23d7546d3311c032073b2ba1592b8c91964231 --cri-socket /var/run/containerd/containerd.sock
+токен действует 24 часа.
+
+# если отсох - то
+kubeadm token list
+или
+kubeadm token create --print-join-command
+# показать cert-hash
+openssl x509 -pubkey -in /etc/kubernetes/pki/ca.crt | openssl rsa -pubin -outform der 2>/dev/null | \
+   openssl dgst -sha256 -hex | sed 's/^.* //'
