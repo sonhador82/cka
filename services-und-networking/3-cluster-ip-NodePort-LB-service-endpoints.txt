@@ -1,0 +1,179 @@
+Service ресурс (абстрактный способ объявить аппу как сервис)
+
+service - логическая группировка сервисов и полиси доступа к ним
+какждый под получает свой ip адрес и dns имя (service discovery)
+service - указывает инстансы подов с одинм и тем же лейблом
+
+обычно определяется с помощью selector-а
+есть вариант определить сервис БЕЗ селектора
+
+Cloud-native service discovery
+для cloud-native апп можно дернуть k8s API и получить эндпоинты сервиса
+
+для остальных можно вставить LB или Network Port между аппой и подами
+
+
+определение service объекта 
+имя сервиса должно быть валидным dns именем
+пример: несколько pod-ов с лейблами MyAPP и портом 9376
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: my-service
+spec:
+  selector:
+    app: MyApp
+  ports:
+    - protocol: TCP
+      port: 80
+      targetPort: 9376
+
+эта спецификаия создаст объект service, неявно типа ClusterIP, и назначит IP 
+контроллер для этого селектора будет опрашивать поды с этим селектором и обновлять этот service
+определение портов в поде могут иметь имена, и можно указывать их в targetPort
+можно определить несколько портов на сервис
+поддерживаемые протоколы: TCP,UDP,HTTP,PROXY, SCTP1.19
+
+
+Сервисы без селекторов
+для
+ - направить сервис на сервис в другом неймспейсе
+ - направить на внешний ресурс, + к гибкости
+ - миграция в кубернетес
+
+определение сервиса БЕЗ ПОДа
+apiVersion: v1
+kind: Service
+metadata:
+  name: my-service
+spec:
+  ports:
+    - protocol: TCP
+      port: 80
+      targetPort: 9376
+
+но нужен еще endpoint
+apiVersion: v1
+kind: Endpoints
+metadata:
+  name: my-service
+subsets:
+  - addresses:
+      - ip: 192.0.2.42
+    ports:
+      - port: 9376
+
+
+мульти-портовые серисы (обязателен нейминг в pod-ах)
+apiVersion: v1
+kind: Service
+metadata:
+  name: my-service
+spec:
+  selector:
+    app: MyApp
+  ports:
+    - name: http
+      protocol: TCP
+      port: 80
+      targetPort: 9376
+    - name: https
+      protocol: TCP
+      port: 443
+      targetPort: 9377
+
+
+можно задавть свой IP из диапазона service-cluster-ip-range
+
+# обнаружение сервисов
+- переменные окружения ({SVCNAME}_SERVICE_HOST {SVCNAME}_SERVICE_PORT}
+- dns (если установлен(must-have), addon) 
+- DNS SRV если имя порта в поде http, то
+ _http._tcp.my-service.my-ns
+если имя сервиса my-service, а неймспейс testspace
+то будет my-service.testspace
++ my-service (в неймспейсе testspace)
+
+
+HEADLESS SERVICE
+# иногда не нужен балансинг, и serviceIP
+тогда указываем в .spec.clusterIP None
+For headless Services, a cluster IP is not allocated, kube-proxy does not handle these Services, and there is no load balancing or proxying done by the platform for them. How DNS is automatically configured depends on whether the Service has selectors defined:
+
+With selectors
+For headless Services that define selectors, the endpoints controller creates Endpoints records in the API, and modifies the DNS configuration to return records (addresses) that point directly to the Pods backing the Service.
+
+Without selectors
+For headless Services that do not define selectors, the endpoints controller does not create Endpoints records. However, the DNS system looks for and configures either:
+
+CNAME records for ExternalName-type Services.
+A records for any Endpoints that share a name with the Service, for all other types
+
+
+### Типы Сервисов
+- ClusterIP 
+дефолтный, создает IP который виден только внутри кластер k8s
+
+- NodePort
+открывает порт на IP каждой ноды, ClusterIP создается неявно,
+возможен доступ извне кластера k8s, подключившись к любой ноде кластера по порту
+--service-node-port-range flag (default: 30000-32767).
+можно указать порт
+
+
+- LoadBalancer 
+создает облачный loadbalancer, доступ извне
+NodePort + ClusterIP - создаются неявно
+
+- ExternalName
+маппит сервис в поле externalName, CNAME
+
+The endpoint IPs must not be: loopback (127.0.0.0/8 for IPv4, ::1/128 for IPv6), or link-local (169.254.0.0/16 and 224.0.0.0/24 for IPv4, fe80::/64 for IPv6).
+
+Endpoint IP addresses cannot be the cluster IPs of other Kubernetes Services, because kube-proxy doesn't support virtual IPs as a destination.
+
+endoint на внешнее имя:
+
+пример: маппинг на под в другом неймспейсе
+apiVersion: v1
+kind: Service
+metadata:
+  name: my-service
+  namespace: prod
+spec:
+  type: ExternalName
+  externalName: my.database.example.com
+
+You may have trouble using ExternalName for some common protocols, including HTTP and HTTPS. If you use ExternalName then the hostname used by clients inside your cluster is different from the name that the ExternalName references.
+
+For protocols that use hostnames this difference may lead to errors or unexpected responses. HTTP requests will have a Host: header that the origin server does not recognize; TLS servers will not be able to provide a certificate matching the hostname that the client connected to.
+
+
+на каждой ноде в кластере k8s запущен kube-proxy,
+который отвечает за VirtualIP назначаемые service кроме ExternalName
+
+
+РЕЖИМЫ kube-proxy
+
+# User space proxy mode
+kube-proxyнаблюдает за k8s мастером о удалении или добавлении servcie и endpoint
+для каждого service открывает случайный порт на локальной ноде, все коннекты на этот порт проксирует на указанный под.
+ kube-proxy takes the SessionAffinity setting of the Service into account when deciding which backend Pod to use.
+ накатывает правила iptables которые ловят трафик на виртуальный clusterIP сервиса и порта и перенаправляет на порт прокси, которая потом направляет на под
+ по дефолту выбирает backend round-robin
+
+
+# iptables proxy mode 
+kube-proxy смотрит на контрольный план k8s добавления и удаления service и endpoint
+для каждой service добавляет iptables рулы, который перехватывают траффик для clusterIP и порта, 
+и перенаправляют его поды, выбырает рандомно
+такой способ быстрее, меньше оверхеда т.к. в userspace не переходит, 
+но есть минусы, если выбранный под не отвечает, то соединение отвалится
+в отличии user-space proxy - там если под не ответил, будет повторная попытка к другому поду
+
+
+# IPVS proxy mode 
+n ipvs mode, kube-proxy watches Kubernetes Services and Endpoints, calls netlink interface to create IPVS rules accordingly and synchronizes IPVS rules with Kubernetes Services and Endpoints periodically. This control loop ensures that IPVS status matches the desired state. When accessing a Service, IPVS directs traffic to one of the backend Pods.
+
+
