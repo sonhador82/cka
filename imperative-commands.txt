@@ -1,0 +1,12 @@
+создать под
+
+kubectl run -o yaml --port=80 -l app=nginx   nginx --image=nginx --dry-run=client
+
+под + сервис
+kubectl run -o yaml --expose=rue --port=80 -l app=nginx   nginx --image=nginx --dry-run=client
+
+сервис для пода (expose) clusterIP
+# kubectl expose pods nginx  -o yaml -l app=nginx --name lb --port 80
+
+NodePort
+# kubectl expose pods nginx  -o yaml -l app=nginx --name lb --port 80 --type=NodePort
