@@ -1,7 +1,7 @@
 [hosts]
-52.212.108.66
-34.247.194.251
-34.250.93.109
+192.168.192.102
+192.168.192.151
+192.168.192.9
 
 [hosts:vars]
 ansible_python_interpreter=/usr/bin/python3
